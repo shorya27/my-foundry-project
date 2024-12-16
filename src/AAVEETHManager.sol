@@ -149,7 +149,7 @@ interface IWETH {
     ) external returns (bool);
 }
 
-interface Pool {
+interface IPoolAaveV3 {
     function supply(
         address asset,
         uint256 amount,
@@ -162,13 +162,35 @@ interface Pool {
         uint256 amount,
         address to
     ) external returns (uint256);
+
+    /**
+     * @notice Returns the user account data across all the reserves
+     * @param user The address of the user
+     * @return totalCollateralBase The total collateral of the user in the base currency used by the price feed
+     * @return totalDebtBase The total debt of the user in the base currency used by the price feed
+     * @return availableBorrowsBase The borrowing power left of the user in the base currency used by the price feed
+     * @return currentLiquidationThreshold The liquidation threshold of the user
+     * @return ltv The loan to value of The user
+     * @return healthFactor The current health factor of the user
+     */
+    function getUserAccountData(
+        address user
+    )
+        external
+        view
+        returns (
+            uint256 totalCollateralBase,
+            uint256 totalDebtBase,
+            uint256 availableBorrowsBase,
+            uint256 currentLiquidationThreshold,
+            uint256 ltv,
+            uint256 healthFactor
+        );
 }
 
 contract AaveETHManager {
     address public immutable aEthAddress;
     address public immutable poolAddress;
-
-    Pool private immutable lendingPool;
     address constant wethaddress = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
 
     constructor(address _aEthAddress, address _lendingpool) {
@@ -178,22 +200,29 @@ contract AaveETHManager {
 
     function depositETH() external payable {
         require(msg.value > 0, "Must send ETH");
-        try Pool(poolAddress).supply(wethaddress, msg.value, msg.sender, 0) {
-            console.log("Supply successful");
-        } catch {
-            console.log("Supply failed");
-        }
+
+        IWETH(wethaddress).deposit{value: msg.value}();
+        uint256 wethBalance = IERC20(wethaddress).balanceOf(address(this));
+
+        IERC20(wethaddress).approve(poolAddress, wethBalance);
+
+        IERC20(wethaddress).allowance(address(this), poolAddress);
+
+        IPoolAaveV3(poolAddress).supply(
+            wethaddress,
+            wethBalance,
+            msg.sender,
+            0
+        );
     }
 
-    function withdrawETH(uint256 aEthAmount) external {
-        require(aEthAmount > 0, "Invalid aEth amount");
-
-        try lendingPool.withdraw(wethaddress, aEthAmount, msg.sender) {
-            console.log("Withdrawal from Aave Pool successful");
-        } catch {
-            console.log("Withdrawal from Aave Pool failed");
-            revert("Withdrawal from Aave Pool failed");
-        }
+    function withdrawETH(uint256 aWEthAmount) external {
+        require(aWEthAmount > 0, "Invalid aEth amount");
+        IPoolAaveV3(poolAddress).withdraw(
+            wethaddress,
+            IERC20(aEthAddress).balanceOf(address(this)),
+            msg.sender
+        );
     }
 
     // function getaEthBalance(address user) external view returns (uint256) {

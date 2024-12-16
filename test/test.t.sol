@@ -2,7 +2,7 @@
 pragma solidity ^0.8.17;
 
 import {Test, console} from "forge-std/Test.sol";
-import {AaveETHManager, IAEth, IWETH, IERC20, Pool, IWrappedTokenGatewayV3} from "../src/AAVEETHManager.sol";
+import {AaveETHManager, IAEth, IWETH, IERC20, IPoolAaveV3, IWrappedTokenGatewayV3} from "../src/AAVEETHManager.sol";
 
 contract AaveETHManagerTest is Test {
     AaveETHManager public aaveManager;
@@ -19,35 +19,18 @@ contract AaveETHManagerTest is Test {
         );
 
         aaveManager = new AaveETHManager(aEthAddress, poolAddress);
-        vm.deal(user, 10 ether); // Provide ETH to the test user
-        console.log("Setup complete. User ETH balance:", user.balance);
+        vm.deal(user, 1 ether); // Provide ETH to the test user
     }
 
     function testDepositETH() public {
         vm.startPrank(user);
         uint256 depositAmount = 1 ether;
 
-        // Step 1: Wrap ETH into WETH
-        IWETH(wethaddress).deposit{value: depositAmount}();
-        uint256 wethBalance = IERC20(wethaddress).balanceOf(user);
-        console.log("WETH balance after deposit:", wethBalance);
-
-        // Step 2: Approve WETH for the Pool
-        IERC20(wethaddress).approve(poolAddress, depositAmount);
-        console.log("WETH approved for Pool");
-
         // Step 3: Deposit WETH into Aave Pool
-        // aaveManager.depositETH{value: depositAmount}();
-        try Pool(poolAddress).supply(wethaddress, depositAmount, user, 0) {
-            console.log("Supply successful");
-        } catch {
-            console.log("Supply failed");
-        }
+        aaveManager.depositETH{value: depositAmount}();
 
-        // Step 4: Check cETH balance
-        uint256 cEthBalance = IAEth(aEthAddress).balanceOf(user);
-        console.log("cETH balance after deposit:", cEthBalance);
-        assert(cEthBalance > 0);
+        uint256 aEthBalance = IAEth(aEthAddress).balanceOf(user);
+        assert(aEthBalance > 0);
 
         vm.stopPrank();
     }
@@ -56,64 +39,17 @@ contract AaveETHManagerTest is Test {
         vm.startPrank(user);
         uint256 depositAmount = 1 ether;
 
-        // Step 1: Wrap ETH into WETH
-        IWETH(wethaddress).deposit{value: depositAmount}();
-        uint256 wethBalance = IERC20(wethaddress).balanceOf(user);
-        console.log("WETH balance after deposit:", wethBalance);
+        aaveManager.depositETH{value: depositAmount}();
 
-        // Step 2: Approve WETH for the Aave Pool
-        IERC20(wethaddress).approve(poolAddress, depositAmount);
-        console.log("WETH approved for Pool");
-
-        // Step 3: Deposit WETH into Aave Pool
-        try Pool(poolAddress).supply(wethaddress, depositAmount, user, 0) {
-            console.log("Supply to Aave Pool successful");
-        } catch {
-            console.log("Supply to Aave Pool failed");
-            revert("Supply to Aave Pool failed");
-        }
-        // aaveManager.depositETH{value: depositAmount}();
-
-        uint256 aEthBalance = IAEth(aEthAddress).balanceOf(user);
-        console.log("aETH balance after deposit:", aEthBalance);
+        uint256 aEthBalance = IERC20(aEthAddress).balanceOf(user);
         assert(aEthBalance > 0); // Ensure aETH is credited
 
-        // Step 4: Withdraw WETH from Aave Pool
-        uint256 userBalanceBefore = user.balance;
-        console.log("User ETH balance before withdrawal:", userBalanceBefore);
-
-        try Pool(poolAddress).withdraw(wethaddress, depositAmount, user) {
-            console.log("Withdrawal from Aave Pool successful");
-        } catch {
-            console.log("Withdrawal from Aave Pool failed");
-            revert("Withdrawal from Aave Pool failed");
-        }
-        // aaveManager.withdrawETH(depositAmount);
-
-        // Step 5: Unwrap WETH back into ETH
-        uint256 wethBalanceAfterWithdraw = IERC20(wethaddress).balanceOf(user);
-        console.log(
-            "WETH balance after withdrawal from Pool:",
-            wethBalanceAfterWithdraw
-        );
-        assert(wethBalanceAfterWithdraw >= depositAmount); // Ensure WETH is available
-        // IERC20(aEthAddress).approve(
-        //     gatewaywethaddress,
-        //     wethBalanceAfterWithdraw
-        // );
-        // IWrappedTokenGatewayV3(gatewaywethaddress).withdrawETH(
-        //     poolAddress,
-        //     wethBalanceAfterWithdraw,
-        //     user
-        // );
-        // console.log("Unwrapped WETH into ETH");
-
-        // uint256 userBalanceAfter = user.balance;
-        // console.log("User ETH balance after unwrapping:", userBalanceAfter);
-
-        // // Check that the user's ETH balance increased after unwrapping
-        // assert(userBalanceAfter > userBalanceBefore);
-
+        uint256 userWETHBalanceBefore = IERC20(wethaddress).balanceOf(user);
+        IERC20(aEthAddress).transfer(address(aaveManager), aEthBalance);
+        aaveManager.withdrawETH(aEthBalance);
+        uint256 userWETHBalanceAfter = IERC20(wethaddress).balanceOf(user);
+        assert(userWETHBalanceAfter > userWETHBalanceBefore);
+        //The user will be left with WETH Tokens in the end Not ETH currency which he/she can redeem for corresponding ETH
         vm.stopPrank();
     }
 }
