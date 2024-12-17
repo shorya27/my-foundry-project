@@ -221,8 +221,16 @@ contract AaveETHManager {
         IPoolAaveV3(poolAddress).withdraw(
             wethaddress,
             IERC20(aEthAddress).balanceOf(address(this)),
-            msg.sender
+            address(this)
         );
+
+        IWETH(wethaddress).withdraw(
+            IERC20(wethaddress).balanceOf(address(this))
+        );
+        (bool ok, ) = payable(msg.sender).call{value: address(this).balance}(
+            ""
+        );
+        require(ok, "Withdrawal failed.");
     }
 
     // function getaEthBalance(address user) external view returns (uint256) {

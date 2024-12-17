@@ -1,31 +1,25 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.17;
 
-import {IAEth, IERC20} from "./AAVEETHManager.sol";
+import {CompoundETHManager, ICEth} from "./CompoundETHManager2.sol";
 
-interface IAaveETHManager {
-    function depositETH() external payable;
-
-    function withdrawETH(uint256 amount) external;
-}
-
-contract aaveIntents {
-    IAaveETHManager public immutable aaveManager;
-    IAEth public immutable aEth;
+contract CompoundIntents {
+    address public immutable compoundManager;
+    address public immutable cEthAddress;
+    ICEth private immutable cEth;
     error InvalidSyntax();
     error InvalidCharacter();
-    address constant wethaddress = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
 
     struct StringPart {
         uint256 start;
         uint256 end;
     }
 
-    constructor(address _aaveManager, address _aEthAddress) {
-        require(_aaveManager != address(0), "Invalid manager address");
-        require(_aEthAddress != address(0), "Invalid aETH address");
-        aaveManager = IAaveETHManager(_aaveManager);
-        aEth = IAEth(_aEthAddress);
+    constructor(address payable _compoundManager, address _cEthAddress) {
+        require(_compoundManager != address(0), "Invalid manager address");
+        compoundManager = _compoundManager;
+        cEthAddress = _cEthAddress;
+        cEth = ICEth(_cEthAddress);
     }
 
     function command(string calldata intent) external payable {
@@ -49,13 +43,18 @@ contract aaveIntents {
 
     function _deposit(uint256 amount) internal {
         require(msg.value == amount, "Ether sent mismatch with amount.");
-        aaveManager.depositETH{value: amount}();
-        uint256 aEthBalance = aEth.balanceOf(address(this));
-        aEth.transfer(msg.sender, aEthBalance);
+        (bool success, ) = compoundManager.call{value: amount}(
+            abi.encodeWithSignature("depositETH()")
+        );
+        require(success, "Deposit failed.");
+        cEth.transfer(msg.sender, cEth.balanceOf(address(this)));
     }
 
     function _withdraw(uint256 amount) internal {
-        aaveManager.withdrawETH(amount);
+        (bool success, ) = compoundManager.call(
+            abi.encodeWithSignature("withdrawETH(uint256)", amount)
+        );
+        require(success, "Withdrawal failed.");
     }
 
     function _extractAmount(

@@ -2,115 +2,129 @@
 pragma solidity ^0.8.17;
 
 import {Test, console} from "forge-std/Test.sol";
-import {aaveIntents} from "../src/AaveIntents.sol";
-import {AaveETHManager, IAEth, IWETH, IERC20, IWrappedTokenGatewayV3} from "../src/AAVEETHManager.sol";
+import {Intents} from "../src/Intents.sol";
+import {AaveETHManager, IAEth, IERC20} from "../src/AAVEETHManager.sol";
+import {CompoundETHManager, ICEth} from "../src/CompoundETHManager2.sol";
 
-contract AaveIntentsTest is Test {
-    aaveIntents public intentsEngine;
+contract IntentsTest is Test {
+    Intents public intentsEngine;
     AaveETHManager public aaveManager;
+    CompoundETHManager public compoundManager;
 
     address user = address(1); // Test user address
-    address constant aEthAddress = 0x4d5F47FA6A74757f35C14fD3a6Ef8E3C9BC514E8; // aave aEth address
-    address constant poolAddress = 0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2;
-    address constant wethaddress = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
-    address constant gatewaywethaddress =
-        0xA434D495249abE33E031Fe71a969B81f3c07950D;
+    address constant aEthAddress = 0x4d5F47FA6A74757f35C14fD3a6Ef8E3C9BC514E8; // Aave aEth address
+    address constant poolAddress = 0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2; // Aave ETH Mainnet Pool Address
+    address constant cEthAddress = 0x4Ddc2D193948926D02f9B1fE9e1daa0718270ED5; // Aave aEth address
 
     function setUp() public {
         vm.createSelectFork(
             "https://eth-mainnet.g.alchemy.com/v2/h3C4fdzbM6xyo_vdxqqxD2Ro1X_3xmgA"
         );
-        // Deploy AaveETHManager and Intents Engine
-        aaveManager = new AaveETHManager(aEthAddress, poolAddress);
-        intentsEngine = new aaveIntents(
-            payable(address(aaveManager)),
-            aEthAddress
+
+        // Deploy mock managers
+        aaveManager = new AaveETHManager(
+            address(aEthAddress),
+            address(poolAddress)
+        );
+        compoundManager = new CompoundETHManager(address(cEthAddress));
+
+        // Deploy intents engine
+        intentsEngine = new Intents(
+            address(aaveManager),
+            aEthAddress,
+            address(compoundManager),
+            cEthAddress
         );
 
         // Provide test user with initial ETH
         vm.deal(user, 1 ether);
     }
 
-    function testDepositIntent() public {
+    function testDepositAave() public {
         vm.startPrank(user);
 
-        uint256 depositAmount = 1 ether;
+        uint256 depositAmount = 0.5 ether;
 
-        intentsEngine.command{value: depositAmount}("deposit 1 ETH");
+        intentsEngine.command{value: depositAmount}("deposit 0.5 ETH aave");
 
-        // Validate aEth balance after deposit
         uint256 useraEthBalance = IAEth(aEthAddress).balanceOf(user);
+        console.log("aeth balance:", useraEthBalance);
         assert(useraEthBalance > 0);
 
         vm.stopPrank();
     }
 
-    function testWrongDepositIntent() public {
+    function testDepositCompound() public {
+        // Start acting as the user
         vm.startPrank(user);
 
-        uint256 depositAmount = 1 ether;
+        uint256 depositAmount = 0.5 ether;
+        uint256 usercEthBalanceBefore = ICEth(cEthAddress).balanceOf(user);
 
-        // User executes "deposit" command through intents engine
-        vm.expectRevert();
-        intentsEngine.command{value: depositAmount}("deposjnc n js 1 ETH");
+        // Execute the deposit command
+        intentsEngine.command{value: depositAmount}("deposit 0.5 ETH compound");
 
+        // Check the user's cETH balance
+        uint256 usercEthBalanceAfter = ICEth(cEthAddress).balanceOf(user);
+
+        // Ensure the balance is greater than 0
+        assert(usercEthBalanceAfter > usercEthBalanceBefore);
+
+        // Stop acting as the user
         vm.stopPrank();
     }
 
-    function testWithdrawIntent() public {
+    function testWithdrawAave() public {
         vm.startPrank(user);
 
-        uint256 depositAmount = 1 ether;
+        uint256 depositAmount = 0.5 ether;
 
-        // User deposits ETH first
-        intentsEngine.command{value: depositAmount}("deposit 1 ETH");
-
-        // Verify aEth balance after deposit
+        // Deposit into Aave first
+        intentsEngine.command{value: depositAmount}("deposit 0.5 ETH aave");
+        uint256 userETHBalancebefore = user.balance;
+        // Withdraw from Aave
         uint256 useraEthBalance = IAEth(aEthAddress).balanceOf(user);
-        assert(useraEthBalance > 0);
-
-        // Transfer aEth to Compound Manager to facilitate withdrawal
         IAEth(aEthAddress).transfer(address(aaveManager), useraEthBalance);
 
-        // Get user WETH balance before withdrawal
-        uint256 userBalanceBefore = IERC20(wethaddress).balanceOf(user);
-        console.log("WETH BALANCE BEFORE WITHDRAWL:", userBalanceBefore);
-        // User withdraws ETH using intents engine
-        intentsEngine.command(
-            string(
-                abi.encodePacked(
-                    "withdraw ",
-                    _toString(useraEthBalance),
-                    " ETH"
-                )
-            )
-        );
+        intentsEngine.command("withdraw 0.5 ETH aave");
 
-        // Verify user ETH balance increased after withdrawal
-        uint256 userBalanceAfter = IERC20(wethaddress).balanceOf(user);
-        console.log("WETH BALANCE AFTER WITHDRAWL:", userBalanceAfter);
+        uint256 userETHBalanceafter = user.balance;
+
+        assert(userETHBalanceafter > userETHBalancebefore);
+
+        vm.stopPrank();
+    }
+
+    function testWithdrawCompound() public {
+        vm.startPrank(user);
+
+        uint256 depositAmount = 0.5 ether;
+
+        // Deposit into Compound first
+        intentsEngine.command{value: depositAmount}("deposit 0.5 ETH compound");
+        uint256 userCETHBalance = ICEth(cEthAddress).balanceOf(user);
+        assert(userCETHBalance > 0);
+        uint256 userBalanceBefore = user.balance;
+        ICEth(cEthAddress).transfer(address(compoundManager), userCETHBalance);
+
+        intentsEngine.command("withdraw 0.5 ETH compound");
+
+        uint256 userBalanceAfter = user.balance;
 
         assert(userBalanceAfter > userBalanceBefore);
 
         vm.stopPrank();
     }
 
-    function _toString(uint256 value) internal pure returns (string memory) {
-        if (value == 0) {
-            return "0";
-        }
-        uint256 temp = value;
-        uint256 digits;
-        while (temp != 0) {
-            digits++;
-            temp /= 10;
-        }
-        bytes memory buffer = new bytes(digits);
-        while (value != 0) {
-            digits -= 1;
-            buffer[digits] = bytes1(uint8(48 + uint256(value % 10)));
-            value /= 10;
-        }
-        return string(buffer);
+    function testInvalidCommand() public {
+        vm.startPrank(user);
+
+        uint256 depositAmount = 0.5 ether;
+
+        // Attempt invalid command
+        vm.expectRevert();
+        intentsEngine.command{value: depositAmount}("invalid command");
+
+        vm.stopPrank();
     }
 }
